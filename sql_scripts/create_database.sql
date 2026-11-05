@@ -58,3 +58,17 @@ CREATE TABLE collection_of_books (
     FOREIGN KEY (collection_id) REFERENCES collections(collection_id) ON UPDATE NO ACTION ON DELETE CASCADE,
     FOREIGN KEY (book_id)       REFERENCES books(book_id)             ON UPDATE NO ACTION ON DELETE CASCADE
 );
+
+ALTER TABLE books ADD COLUMN publication_year INT NULL;
+SET SQL_SAFE_UPDATES = 0;
+
+UPDATE books
+SET publication_year = YEAR(publication_date)
+WHERE publication_date IS NOT NULL;
+
+
+ALTER TABLE books DROP COLUMN publication_date;
+
+ALTER TABLE books
+MODIFY COLUMN average_rating DECIMAL(3,2) NULL,
+MODIFY COLUMN num_pages INT NULL;
