@@ -134,7 +134,7 @@ Each linking table has **one composite primary key** made from its two IDs. Both
 
 The four relationships are `books` **1:N** `book_authors`, `authors` **1:N** `book_authors`, `books` **1:N** `collection_of_books`, and `collections` **1:N** `collection_of_books`.
 
-![Bookworms entity-relationship model](figures/ERM_bookworms.pdf)
+[`Bookworms entity-relationship model`](figures/ERM_bookworms.pdf)
 
 ### MySQL `books` table
 
