@@ -235,9 +235,9 @@ The **0.04-point gap** gives limited descriptive support for H1, not a strong di
 
 ### H2 - Some grouped author entries were consistently above the benchmark
 
-The reported H2 analysis groups the stored `authors` labels in `bookworms_cleaned_data_file (1).csv`, where both grouping dictionaries had been applied, and compares them with the rated catalog median of **3.96**. An entry qualified with at least three rated records, at least 1,000 ratings in total, a median score above 3.96, and at least 75% of its records above 3.96.
+The reported H2 analysis uses the grouped `authors` labels in the cleaned analysis dataset and compares them with the rated catalogue median of **3.96**. An entry qualified with at least three rated records, at least 1,000 ratings in total, a median score above 3.96, and at least 75% of its records above 3.96.
 
-That grouped-label version produces **212 qualifying entries**, as reported in the presentation:
+The analysis identifies **212 qualifying entries**. Three examples are shown below.
 
 | Example entry | Rated records | Median score | Records above 3.96 |
 | --- | ---: | ---: | ---: |
@@ -246,6 +246,10 @@ That grouped-label version produces **212 qualifying entries**, as reported in t
 | J.K. Rowling | 25 | 4.49 | 100% |
 
 Contributor combinations follow the analysis grouping rules, and repeated editions can represent the same work. These examples should be reviewed before making recommendations about individual authors.
+
+The chart shows the top qualifying grouped author entries by median score alongside the catalogue median.
+
+![Median ratings of top qualifying author entries compared with the catalogue median](figures/h2_author_consistency.png)
 
 ### H3 - Mean ratings were fairly close across page ranges
 
@@ -256,6 +260,8 @@ We excluded missing page counts and records with two pages or fewer, leaving **1
 | 3-100 | 921 | 3.968 |
 | 101-400 | 7,034 | 3.907 |
 | Over 400 | 2,988 | 4.021 |
+
+![Average Goodreads ratings and record counts across page ranges](figures/h3_book_length.png)
 
 The means differ but remain fairly close on the five-point scale. Length helps define a shorter-reading offer; it does not establish quality or cause a higher score.
 
@@ -271,7 +277,12 @@ We used the reported publication year and displayed only decades with **at least
 | 2000s | 7,514 | 3.935 | 911 |
 | 2010s | 137 | 3.981 | 775 |
 
+![Average Goodreads scores by publication decade](figures/h4_mean_scores_by_decade.png)
+
+![Median Goodreads rating counts by publication decade](figures/h4_rating_counts_by_decade.png)
+
 Mean scores are similar. Median rating count peaks in the 2000s among the decades shown, but this is not evidence of current demand. Reported years may refer to editions, not first publication.
+
 
 ## 9. Key findings, recommendations and limitations
 
