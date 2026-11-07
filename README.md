@@ -90,13 +90,13 @@ The earlier Excel reference was reported as having **11,127 records**. The CSV n
 
 ## 4. Data preparation
 
-The final cleaning workflow is saved in **`bookworms_data_cleaning_final.ipynb`**. It starts from the original `books.csv`, rather than from an already-cleaned export. The saved run contains 49 executed code cells, reports 11,119 parsed records plus four repaired records, and ends with a successful export to **`bookworms_cleaned_data_final.csv`**.
+The final cleaning workflow is saved in **`bookworms_data_cleaning_final.ipynb`**. It reads original `books.csv` from data/raw and exports the cleaned data to data/clean.
 
 The input and output are in the current working folder in this version. Its main cleaning decisions were:
 
 | Issue or check | Treatment and reason |
 | --- | --- |
-| Four rows contained 13 fields instead of 12. | Inspect the rows, rejoin the split author text with `fix_author()`, and add the repaired records back rather than discard them. |
+| Four malformed rows contained an extra field. | Repair the split contributor text and retain the records.|
 | Spaces in column headings and around titles. | Strip unnecessary outside spaces, including the spaces before `num_pages`. |
 | Numeric values imported as text. | Convert IDs and counts to integers and average ratings to decimal values; retain ISBNs as text. |
 | Duplicate records or IDs. | Check both; the notebook reports no fully duplicated rows or duplicate source book IDs. |
@@ -105,38 +105,16 @@ The input and output are in the current working folder in this version. Its main
 | Very large or small page counts. | Inspect rather than automatically delete: large values can describe sets or reference books, while some very small values appear to describe audio editions. |
 | Different English-language codes. | Map `en-US`, `en-GB` and `en-CA` to `eng` for the broad language filter. |
 | Publisher variants. | Apply `publisher_corrections` to the `publisher` column; these groups are an analytical choice, not a verified corporate-ownership classification. |
-| `NOT A BOOK` in the contributor field. | Replace five placeholders with missing values without deleting the book records. |
+| contributor Placeholders. | Replace  five `NOT A BOOK` values with missing values while retaining the book records. |
 | Publication information. | Extract `publication_year`, check for blank or missing years, and convert it to an integer. |
 
-Two source strings contain impossible full dates, but their reported years can still be extracted. We retained the years for year-based analysis without guessing replacement days. Full SQL-date loading is a separate check.
+Two source strings contain invalid full dates, but their reported years can still be extracted. The year-based analysis uses these reported years, and the database stores `publication_year`.
 
 ### Contributor detail and author summaries
 
-The final notebook uses two author-grouping dictionaries, but they do not both change the exported data:
+Author grouping can combine or shorten contributor labels. The H2 results therefore describe grouped author entries. Reproducing those results requires the same grouping rules in the exploration notebook. The database population notebook splits the contributor text available in the cleaned CSV into author records and book-author links.
 
-| Step in the final notebook | What the code does | Effect on the cleaned export |
-| --- | --- | --- |
-| Cell 38: `author_corrections` | Replaces selected Douglas Adams and J.K. Rowling contributor lists directly in `df_clean["authors"]`. | These shortened labels remain in the exported `authors` column. |
-| Cell 40: `more_author_corrections` | Creates `author_summary` and applies both dictionaries to that separate variable. | The additional grouping appears in the displayed summary, not in the exported `authors` column. |
-| Cell 43: placeholder treatment | Replaces `NOT A BOOK` in `authors` with missing values. | Five placeholder fields are blank; the book records are retained. |
-
-The separate summary in cell 40 is:
-
-```python
-author_summary = df_clean["authors"].replace(author_corrections)
-author_summary = author_summary.replace(more_author_corrections)
-author_summary.value_counts().head(20)
-```
-
-`head(20)` limits the displayed summary; it does not limit replacements to 20 book records. The saved summary shows Stephen King with 80 records, Sandra Brown with 46, and Agatha Christie with 45. These are counts of grouped labels, not counts of distinct works or a rating-based ranking.
-
-**The first dictionary still overwrites contributor names.** The separate summary prevents the second dictionary from overwriting further names, but it cannot restore names already shortened in cell 38. Complete contributor preservation would require changing that first assignment as well and rerunning from the raw file; this README does not claim that step is already in the final notebook.
-
-### Final export
-
-The last cell saves `df_clean` with `index=False` and UTF-8 encoding as `bookworms_cleaned_data_file.csv` in the current working folder, and prints its location. The saved notebook output confirms that this export completed. It does not export `author_summary` or create an additional author-summary column.
-
-The existing presentation's H2 result uses the earlier **fully grouped** `explore_clean_data.ipynb`. Reproducing that result from the final notebook's export requires applying both dictionaries separately in the analysis. Grouping the final export directly by `authors` is a different calculation. The author-label changes do not alter the ratings, counts, page lengths or publication years used by the collection filters and other comparisons.
+The cleaned dataset used to verify the figures in this README is `data/clean/bookworms_cleaned_data_final.csv`. Both the exploration and database population notebooks should read this same dataset. When regenerating the export, keep their CSV input paths aligned with the cleaning notebook's output path.
 
 ## 5. Database design
 
@@ -144,7 +122,7 @@ We moved from one flat file to five related tables. Two linking tables handle th
 
 | Table | Purpose | Primary key |
 | --- | --- | --- |
-| `books` | Book details, reader scores, counts and publication date. | `book_id` |
+| `books` | Book details, reader scores, counts, and publication year. | `book_id` |
 | `authors` | Author/contributor records. | `author_id` |
 | `book_authors` | Connect books to contributor records. | `book_id` + `author_id` |
 | `collections` | Collection definitions. | `collection_id` |
@@ -175,18 +153,40 @@ The `book_id` preserves the original Goodreads ID from the CSV.
 
 ## 6. SQL implementation and checks
 
-The MySQL database `bookworms_new` contains five tables. The schema is created with `create_bookworms_new.sql` and populated from the cleaned CSV using Python through SQLAlchemy and PyMySQL. The loading steps are documented in [`notebooks/database_population.ipynb`](notebooks/database_population.ipynb).
+The MySQL database is named `bookworms_new`. Create its five tables using `sql_scripts/create_bookworms_new.sql`, then populate them using [`notebooks/database_population.ipynb`](notebooks/database_population.ipynb). The notebook connects to MySQL through SQLAlchemy and PyMySQL.
 
-The `books` table keeps the original Goodreads book IDs and stores `publication_year`, which was extracted during data cleaning. This gives SQL and Python the same year field for the Popular Classics filter. Missing ratings, page counts and publication years are stored as `NULL`.
+The loading procedure:
 
-The MySQL screenshots document the table structure and relationships. The population notebook checks the number of books loaded against the CSV row count and displays the stored collection counts. The structure can also be checked directly in MySQL :
+1. Inserts selected CSV fields into `books`, preserving the source Goodreads ID as `book_id`.
+2. Splits slash-separated contributor names, creates author IDs and inserts the corresponding `book_authors` links.
+3. Stores the four collection definitions and inserts matching book-collection pairs into `collection_of_books`.
+
+Missing scores and page counts are stored as SQL `NULL`. The schema also allows missing publication years. Composite primary keys prevent duplicate pairs in the linking tables, and foreign keys enforce the relationships.
+
+
+### Full catalogue and English-only reporting
+
+The database contains all languages. Its saved collection memberships use the rating, page and year rules. Analytical queries apply **`books.language_code = 'eng'`** before reporting the English collection results.
+
+| Collection | Stored memberships across all languages | English editions in the reports |
+| --- | ---: | ---: |
+| Popular Favourites | 976 | 972 |
+| Recommended Short Reads | 187 | 186 |
+| Hidden-Gem Candidates | 46 | 45 |
+| Popular Classics | 105 | 96 |
+
+The SQL query file is `sql_scripts/query_bookworms_new.sql`. It demonstrates joins, aggregations, subqueries and window functions, and documents the English filter. It also compares the English counts with the Python results. The additional reports show overlap between collection pairs and limited reader feedback among Classics candidates.
+
+Check the table definitions directly in MySQL:
 
 ```sql
 SHOW TABLES FROM bookworms_new;
 SHOW COLUMNS FROM bookworms_new.books;
+SHOW CREATE TABLE bookworms_new.authors;
+SHOW CREATE TABLE bookworms_new.collection_of_books;
 ```
 
-The collection figures reported here come from Python. A separate consistency check used SQl database bookworms_new stored under the name `bookworms_new_dump.sql`in sql_scripts. To reconcile the results against the live MySQL database, run `query_bookworms_new.sql`. It applies `language_code = 'eng'` when reporting collection counts, so they can be compared with the English-only Python results. 
+The population notebook includes a CSV-to-database book-count check and collection membership counts. Run the analytical SQL reports to compare the English-only results with the Python analysis. The MySQL screenshots document the schema. `sql_scripts/bookworms_new_dump.sql` is an exported snapshot of the database for sharing and importing on another machine.
 
 ## 7. Collection rules and results
 
@@ -198,8 +198,6 @@ All four filters require `language_code == "eng"`. Thresholds are inclusive wher
 | Recommended Short Reads | 4.0 | At least 500 | More than 2 and no more than 100 pages | 186 |
 | Hidden-Gem Candidates | 4.5 | 100-999 | None | 45 |
 | Popular Classics | 4.0 | No minimum | Reported publication year before 1976 | 96 |
-
-The Hidden-Gem calculation uses **4.5**, matching the executable filter, not the older comment that says 4.2. The Classics cutoff is **before 1976**, not "1976 or earlier."
 
 ![Records qualifying for each collection](figures/bookworms_collections.png)
 
@@ -245,7 +243,7 @@ That grouped-label version produces **212 qualifying entries**, as reported in t
 | J.R.R. Tolkien | 25 | 4.44 | 96% |
 | J.K. Rowling | 25 | 4.49 | 100% |
 
-These examples are not the top three or a verified individual-author ranking. Contributor combinations are grouped as stored, and editions may repeat works. The earlier 213-entry result and Tolkien's 17-record grouping use different author labels. The final cleaning notebook displays a top-20 label count, not this H2 analysis, so its successful export should not be confused with a new execution of H2.
+Contributor combinations follow the analysis grouping rules, and repeated editions can represent the same work. These examples should be reviewed before making recommendations about individual authors.
 
 ### H3 - Mean ratings were fairly close across page ranges
 
@@ -292,61 +290,67 @@ The dataset is historical, not representative of every reader, and heavily Engli
 
 ## 10. Tools and collaboration
 
-We used Python and Pandas for preparation and analysis, Matplotlib for charts, Jupyter Notebook for the workflow, MySQL for the relational database, Miro for the initial model, DrawDB for database design, and Git/GitHub for sharing the work.
+- **Python, Pandas and NumPy** for data preparation and analysis.
+- **Matplotlib and Jupyter Notebook** for charts and the documented workflow.
+- **MySQL and MySQL Workbench** for the relational database and SQL analysis.
+- **SQLAlchemy and PyMySQL** for loading DataFrames into MySQL.
+- **Miro and DrawDB** for the database model and diagram.
+- **Git and GitHub** for collaboration and version control.
 
-We worked across business planning, cleaning, database implementation, analysis and presentation. We agreed to use personal Git branches and review changes before merging into `main`.
+The team worked across business planning, cleaning, database implementation, analysis and presentation, using personal branches and reviewing changes before merging into `main`.
 
-Our integration discussions separated data preparation from analysis. Python transformations stay in notebooks; table creation, loading and analytical SQL need their own saved scripts. A changed database alone is not a record of how it was built.
-
-The main lesson was to keep contributor and edition detail and record both the selection rules and data version. An author label can change a summary without changing any book's score.
-
-## 11. Files and how to run the work
+## 11. Repository files and running instructions
 
 ### Main files
 
-| File | Role |
+| File or folder | Role |
 | --- | --- |
-| `bookworms_data_cleaning_final.ipynb` | Final shared cleaning notebook, including the separate second-stage author summary and the revised local save path. |
-| `books.csv` | Original raw input expected by the final cleaning notebook. |
-| `bookworms_cleaned_data_final.csv` | Cleaned output written by the final notebook; its saved run confirms the export succeeded. |
-| `explore_clean_data.ipynb` | Shared collection-selection and H1,H2,H3,H4 analysis notebook. |
-| `figures/` | Current ERM,ERD and charts used in this README. |
-| `slides/`Bookworms_g4_presentation.pptx | Final Bookworms presentation. |
-| `sql_scripts/` | Current database creation script, database dump and analytical queries. |
+| `notebooks/bookworms_data_cleaning_final.ipynb` | Reads the raw data and exports the cleaned CSV. |
+| `notebooks/database_population.ipynb` | Loads the five MySQL tables and checks the loaded counts. |
+| `notebooks/explore_clean_data.ipynb` | Collection selection, hypothesis exploration and reported comparisons. |
+| `data/raw/books.csv` | Original input for the cleaning notebook. |
+| `data/clean/` | Cleaned CSV used by the analysis and population notebooks. The supplied analysis snapshot is `bookworms_cleaned_data_final.csv`. |
+| `sql_scripts/create_bookworms_new.sql` | Database and table definitions. |
+| `sql_scripts/query_bookworms_new.sql` | Analytical SQL queries with the English-language reporting filter. |
+| `sql_scripts/bookworms_new_dump.sql` | Exported database snapshot. |
+| `figures/` | Database model, diagrams and analysis charts. |
+| `slides/Bookworms_g4_presentation.pptx` | Final project presentation. |
 
-The final cleaning notebook reads **`books.csv` from the current working folder** and writes **`bookworms_cleaned_data_final.csv` to that folder**. It uses `../data/raw/` for reading boos.csv and `../data/clean/` for saving the cleaned file.
+### Environment
 
-A simple local arrangement for running it unchanged is:
+Install MySQL and MySQL Workbench, then create a Python virtual environment and install the notebook dependencies:
 
-```text
-working-folder/
-    bookworms_data_cleaning_final.ipynb
-    books.csv
-    bookworms_cleaned_data_corrected.csv   # created by the export cell
+```bash
+python -m venv .venv
 ```
 
-For the repository, raw data, cleaned data and notebooks can be kept in separate folders, but the paths in the code must then be updated together. Do not rename a cleaned export to `books.csv`: the repair and cleaning steps expect the original raw input.
+Activate the environment on Windows PowerShell:
 
-The shared exploration notebook contains the collection filters and H1/H2 code. The later H3/H4 charts and presentation provide the other reported comparisons. The older saved H2 output in the exploration notebook belongs to its earlier input version, not automatically to every later export.
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+On macOS or Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install the Python packages:
+
+```bash
+python -m pip install pandas numpy matplotlib jupyter sqlalchemy pymysql
+```
+
+Use MySQL 8.0 or later for the CTEs and window functions in the analytical queries. Each team member uses their own local MySQL credentials.
 
 ### Running order
 
-1. **Prepare the environment.** Use a Python environment with Pandas, Matplotlib and Jupyter, plus MySQL and Workbench for the database stage. Keep the original raw CSV unchanged.
-2. **Run the final cleaning notebook.** Put `books.csv` in the working folder used by `bookworms_data_cleaning_final.ipynb`. Restart the notebook session and run its cells from the beginning so the data and both dictionaries are created in order.
-3. **Check the export location.** The final cell writes `bookworms_cleaned_data_corrected.csv` and prints the full path. It saves `df_clean`, not `author_summary`. Retain the previous export until the team has checked which version the analysis reads.
-4. **Point the analysis to the chosen export.** The exploration notebook must explicitly load that file; it does not inherit variables from the cleaning notebook. To reproduce the published H2 grouping, apply both author dictionaries separately before the H2 aggregation, rather than assuming the final exported `authors` field already contains both. Keep the collection thresholds unchanged.
-5. **Prepare and load the database tables.** Use the current database creation and loading workflow, not an older DrawDB-only draft. Before building contributor links, resolve the first author replacement described in section 4. Preserve the source-to-database ID mapping and record how missing values and dates are loaded. Do not rerun table-creation commands over a working database just to change its documentation.
-6. **Refresh the analysis and documentation together.** Rerun the collection filters and hypothesis calculations from the agreed data version, then update the charts, presentation and README together if any results change. Run and reconcile the live MySQL queries separately. Check that the ERM and SQL definitions describe the same tables and that the images linked here are present.
+1. **Clean the data.** Open `notebooks/bookworms_data_cleaning_final.ipynb`, restart its kernel and run the cells in order. Its input is `../data/raw/books.csv` and its cleaned output belongs in `../data/clean/` when the notebook runs from `notebooks/`.
+2. **Use the same cleaned dataset.** Set the CSV input paths in `explore_clean_data.ipynb` and `database_population.ipynb` to the cleaning export. The reported results use the supplied `bookworms_cleaned_data_file (1).csv` snapshot. CSV filenames, including spaces and suffixes, must match the paths in the code.
+3. **Create the database.** Run `sql_scripts/create_bookworms_new.sql` in MySQL Workbench to create `bookworms_new` and its five tables.
+4. **Populate the database.** Connect `database_population.ipynb` to `bookworms_new` using your local credentials, then run its preparation, population and verification cells. Run the population cell against empty tables. It appends rows, so rerunning after a successful load produces duplicate-key errors.
+5. **Run the analysis.** Run `explore_clean_data.ipynb` from a fresh kernel, using the same cleaned data and author-grouping rules as the reported analysis.
+6. **Run the SQL reports.** Open `sql_scripts/query_bookworms_new.sql` in MySQL Workbench. The queries apply the English filter to the stored memberships, and the expected collection counts are **972, 186, 45 and 96**.
 
-Creating `author_summary` inside the cleaning notebook does not save that variable in the CSV or make it available in another notebook. The analysis needs its own explicit grouping step or a saved, documented summary input.
-
-### Remaining reproducibility checks
-
-The final cleaning notebook is now part of the documented workflow, and it contains a saved successful export. The remaining checks concern the full repository and its analytical outputs:
-
-- Record the original dataset download URL and usage terms, and reconcile the earlier Excel/CSV record-count difference.
-- Resolve cell 38's remaining contributor replacement before claiming complete contributor preservation, and use consistent author grouping when reproducing H2.
-- Save the current SQL definitions, loading procedure and analytical outputs; confirm the full `authors`/`collections` definitions, ID mapping, loaded row counts, missing-value treatment and stored dates.
-- Keep the final notebook and its matching export with the project, confirm environment dependencies, and include the notebooks or scripts behind the later H3/H4 charts. A cleaning notebook does not replace the separate analysis code.
-
-These checks do not require deleting publication data or rebuilding working tables to match an old diagram.
+The database dump provides a second setup route. Import `bookworms_new_dump.sql` into a fresh database in Workbench to restore the saved tables and records, then run the query file. Choose either the Python population route or the dump-import route for a given database.
